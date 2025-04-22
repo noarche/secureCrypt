@@ -1,4 +1,5 @@
 import os
+import random
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
@@ -17,33 +18,36 @@ PBKDF2_ITERATIONS = 100_000
 def derive_key(password: str, salt: bytes) -> bytes:
     return PBKDF2(password, salt, dkLen=KEY_LENGTH, count=PBKDF2_ITERATIONS)
 
+# Securely delete a file by overwriting with random data
+def secure_delete(file_path: str):
+    try:
+        if os.path.isfile(file_path):
+            length = os.path.getsize(file_path)
+            with open(file_path, "ba+", buffering=0) as f:
+                f.seek(0)
+                f.write(os.urandom(length))
+            os.remove(file_path)
+    except Exception as e:
+        print(Fore.RED + f"[!] Failed to securely delete {file_path}: {e}")
+
 # Encrypt a file
 def encrypt_file(file_path: str, password: str) -> bool:
     try:
-        # Read the file to encrypt
         with open(file_path, 'rb') as f:
             data = f.read()
 
-        # Generate a random salt and IV
         salt = get_random_bytes(SALT_SIZE)
         iv = get_random_bytes(IV_SIZE)
-
-        # Derive the key using PBKDF2
         key = derive_key(password, salt)
 
-        # Create AES cipher in CFB mode
         cipher = AES.new(key, AES.MODE_CFB, iv=iv)
-
-        # Pad data and encrypt
         encrypted_data = cipher.encrypt(pad(data, BLOCK_SIZE))
 
-        # Save the encrypted file
         encrypted_file_path = file_path + '.enc'
         with open(encrypted_file_path, 'wb') as enc_file:
             enc_file.write(salt + iv + encrypted_data)
 
-        # Delete the original file
-        os.remove(file_path)
+        secure_delete(file_path)
         print(Fore.GREEN + f"Successfully encrypted: {file_path}")
         return True
     except Exception as e:
@@ -53,54 +57,41 @@ def encrypt_file(file_path: str, password: str) -> bool:
 # Decrypt a file
 def decrypt_file(file_path: str, password: str) -> bool:
     try:
-        # Read the encrypted file
         with open(file_path, 'rb') as f:
             enc_data = f.read()
 
-        # Extract salt, IV, and encrypted data
         salt = enc_data[:SALT_SIZE]
         iv = enc_data[SALT_SIZE:SALT_SIZE + IV_SIZE]
         encrypted_data = enc_data[SALT_SIZE + IV_SIZE:]
 
-        # Derive the key using PBKDF2
         key = derive_key(password, salt)
-
-        # Create AES cipher in CFB mode
         cipher = AES.new(key, AES.MODE_CFB, iv=iv)
-
-        # Decrypt and unpad data
         decrypted_data = unpad(cipher.decrypt(encrypted_data), BLOCK_SIZE)
 
-        # Save the decrypted file
-        decrypted_file_path = file_path[:-4]  # Remove '.enc' from the file name
+        decrypted_file_path = file_path[:-4]
         with open(decrypted_file_path, 'wb') as dec_file:
             dec_file.write(decrypted_data)
 
-        # Delete the encrypted file
-        os.remove(file_path)
+        secure_delete(file_path)
         print(Fore.GREEN + f"Successfully decrypted: {file_path}")
         return True
     except Exception as e:
         print(Fore.RED + f"Failed to decrypt {file_path}: {e}")
         return False
 
-# Main function to interact with the user
+# Main function (unchanged)
 def main():
-    # Prompt for directory and action
     directory = input(Fore.CYAN + "Enter the directory path: ")
     action = input(Fore.YELLOW + "Encrypt or Decrypt? [e/d]: ").lower()
-
-    # Prompt for password
     password = getpass(Fore.MAGENTA + "Enter password: ")
 
-    # Process files in the directory
     if action == 'e':
         print(Fore.CYAN + f"Encrypting files in: {directory}")
         files_changed = 0
         for root, dirs, files in os.walk(directory):
             for file in files:
                 file_path = os.path.join(root, file)
-                if not file.endswith('.enc'):  # Skip already encrypted files
+                if not file.endswith('.enc'):
                     if encrypt_file(file_path, password):
                         files_changed += 1
         print(Fore.GREEN + f"Encryption completed. {files_changed} files changed.")
